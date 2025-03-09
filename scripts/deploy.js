@@ -7,12 +7,36 @@ const rl = readline.createInterface({
     output: process.stdout
 });
 
-const PANCAKE_ROUTER = "0x10ED43C718714eb63d5aA57B78B54704E256024E";
-
 async function question(query) {
     return new Promise(resolve => {
         rl.question(query, resolve);
     });
+}
+
+async function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function verifyContract(address, constructorArgs, attempts = 5) {
+    for (let i = 0; i < attempts; i++) {
+        try {
+            console.log(`\nTentativa ${i + 1} de verificação...`);
+            await hre.run("verify:verify", {
+                address: address,
+                constructorArguments: constructorArgs,
+            });
+            console.log("\nContrato verificado com sucesso!");
+            return true;
+        } catch (e) {
+            if (i < attempts - 1) {
+                console.log("Aguardando 30 segundos antes da próxima tentativa...");
+                await sleep(30000); // Espera 30 segundos
+            } else {
+                console.log("\nErro na verificação após todas as tentativas:", e.message);
+            }
+        }
+    }
+    return false;
 }
 
 async function main() {
@@ -25,28 +49,32 @@ async function main() {
     let supply = await question("Digite o supply inicial (sem decimais): ");
     const decimals = 18;
 
-    // Usando parseUnits do ethers
     supply = parseUnits(supply, decimals);
 
     // Deploy do contrato
-    console.log("Deployando token...");
+    console.log("\nDeployando token...");
     const Token = await hre.ethers.getContractFactory("StreamerUSD");
     const token = await Token.deploy(name, symbol, supply);
     await token.waitForDeployment();
 
     const tokenAddress = await token.getAddress();
-    console.log(`Token deployado em: ${tokenAddress}`);
+    console.log(`\nToken deployado em: ${tokenAddress}`);
 
-    // Verificação do contrato
-    console.log("Verificando contrato...");
-    try {
-        await hre.run("verify:verify", {
-            address: tokenAddress,
-            constructorArguments: [name, symbol, supply],
-        });
-    } catch (e) {
-        console.log("Erro na verificação:", e);
-    }
+    // Aguarda alguns blocos para garantir que o contrato está indexado
+    console.log("\nAguardando 5 blocos para confirmação...");
+    const deployTx = await token.deploymentTransaction();
+    await deployTx.wait(5); // Aguarda 5 blocos
+
+    // Verificação do contrato com múltiplas tentativas
+    await verifyContract(tokenAddress, [name, symbol, supply]);
+
+    console.log(`\nPróximos passos:
+    1. Use o script de mint para criar tokens adicionais
+    2. Use o script de liquidez para adicionar liquidez
+    3. Use o menu do script de mint para gerenciar o token
+
+    Endereço do contrato: ${tokenAddress}
+    `);
 
     rl.close();
 }
